@@ -9,3 +9,5 @@
 7. **LOW: unreviewed external standards.** `AGENTS.md` points to a separate `storytold/craftrules` `AGENTS.md`; it was not retrievable using the current connector. Do not infer compliance without reading it.
 
 No PR merge or upstream contribution is authorized. `READY FOR INTEGRATION` and `production-ready` are **not** established here.
+
+8. **CI failure reproduced:** On `90cdfa2`, 2 / 228 engine library tests failed because CSV General formatting narrowed 12-digit integers; fix and added tests must be verified on the *next* SHA before changing readiness status.

@@ -569,6 +569,37 @@ mod tests {
     }
 
     #[test]
+    fn general_csv_export_keeps_large_numbers_without_narrow_cell_rounding() {
+        use gridcraft_core::Value;
+
+        let mut wb = Workbook::new();
+        let sh = wb.sheet_mut(0).unwrap();
+        for (column, number) in [124_412_140_710.0, -124_412_140_710.0, 123_456_789_012_345.0, 1e15]
+            .into_iter()
+            .enumerate()
+        {
+            sh.set_value(CellRef::new(0, column as u32), Value::Number(number));
+        }
+
+        // A grid may show scientific notation when a cell is narrow, but exporting its
+        // unformatted numeric value must not lose significant digits.
+        let expected = b"124412140710,-124412140710,123456789012345,1E+15\r\n";
+        assert_eq!(save_bytes(&wb, "numbers.csv").unwrap(), expected);
+        assert_eq!(
+            save_bytes(&wb, "numbers.tsv").unwrap(),
+            b"124412140710\t-124412140710\t123456789012345\t1E+15\r\n"
+        );
+        let (reopened, _) = open_bytes("numbers.csv", expected).unwrap();
+        for (column, number) in [124_412_140_710.0, -124_412_140_710.0, 123_456_789_012_345.0, 1e15]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(reopened.sheet(0).unwrap().value(CellRef::new(0, column as u32)), Value::Number(number));
+        }
+        assert_eq!(save_bytes(&reopened, "numbers.csv").unwrap(), expected);
+    }
+
+    #[test]
     fn template_extension_saves_template_content_type() {
         let bytes = save_bytes(&Workbook::new(), "Budget.xltx").unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();

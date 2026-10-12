@@ -439,6 +439,75 @@ mod tests {
     }
 
     #[test]
+    fn malformed_array_dimensions_and_broadcast_boundaries() {
+        assert!(Array::new(0, 1, vec![]).is_none());
+        assert!(Array::new(1, 0, vec![]).is_none());
+        assert!(Array::new(2, 2, vec![Value::Bool(true)]).is_none());
+        assert!(Array::new(usize::MAX, 2, vec![]).is_none());
+
+        let scalar = Array::filled(0, 0, Value::Number(7.0));
+        assert_eq!((scalar.rows, scalar.cols), (1, 1));
+        assert_eq!(scalar.get_broadcast(100, 100), Value::Number(7.0));
+
+        let row = Array::row(vec![Value::Number(10.0), Value::Number(20.0)]);
+        assert_eq!(row.get_broadcast(10, 0), Value::Number(10.0));
+        assert_eq!(row.get_broadcast(10, 1), Value::Number(20.0));
+        assert_eq!(row.get_broadcast(10, 2), Value::Error(CellError::NA));
+        assert_eq!(row.get(1, 0), None);
+
+        let column = Array::column(vec![Value::Bool(false), Value::Bool(true)]);
+        assert_eq!(column.get_broadcast(1, 50), Value::Bool(true));
+        assert_eq!(column.get_broadcast(2, 50), Value::Error(CellError::NA));
+        assert_eq!(Array::column(vec![]).get(0, 0), Some(&Value::Error(CellError::Calc)));
+        assert_eq!(Array::row(vec![]).get(0, 0), Some(&Value::Error(CellError::Calc)));
+    }
+
+    #[test]
+    fn error_coercion_and_text_order_have_deterministic_contracts() {
+        for err in CellError::ALL.into_iter().chain([CellError::Circ]) {
+            let value = Value::Error(err);
+            assert_eq!(CellError::parse(&err.as_str().to_ascii_lowercase()), Some(err));
+            assert_eq!(value.as_error(), Some(err));
+            assert_eq!(value.to_number(), Err(err));
+            assert_eq!(value.to_text(), Err(err));
+            assert_eq!(value.to_bool(), Err(err));
+            assert_eq!(value.display(), err.as_str());
+        }
+
+        assert_eq!(Value::Empty.to_number(), Ok(0.0));
+        assert_eq!(Value::Empty.to_bool(), Ok(false));
+        assert_eq!(Value::Bool(false).to_number(), Ok(0.0));
+        assert_eq!(Value::Bool(true).to_text(), Ok(String::from("TRUE")));
+        assert_eq!(Value::text("FALSE").to_bool(), Ok(false));
+        assert_eq!(Value::text("maybe").to_bool(), Err(CellError::Value));
+        assert_eq!(Value::number(f64::INFINITY), Value::Error(CellError::Num));
+        assert_eq!(Value::number(f64::NEG_INFINITY), Value::Error(CellError::Num));
+        assert!(Value::number(-0.0).as_f64().unwrap().is_sign_positive());
+
+        assert_eq!(compare_text("Alpha", "aLPHA"), Ordering::Equal);
+        assert_eq!(compare_text("ab", "aba"), Ordering::Less);
+        assert_eq!(compare_text("aba", "ab"), Ordering::Greater);
+        assert_eq!(compare(&Value::Empty, &Value::Bool(false)), Ordering::Equal);
+        assert_eq!(sort_compare(&Value::Error(CellError::Div0), &Value::Error(CellError::NA)), Ordering::Equal);
+        assert_eq!(sort_compare(&Value::Bool(true), &Value::Empty), Ordering::Less);
+    }
+
+    #[test]
+    fn long_general_numbers_keep_significant_decimal_digits() {
+        let cases = [
+            (124_412_140_710.0, "124412140710"),
+            (-124_412_140_710.0, "-124412140710"),
+            (123_456_789_012_345.0, "123456789012345"),
+            (1e15, "1E+15"),
+            (1e-10, "1E-10"),
+        ];
+        for (value, text) in cases {
+            assert_eq!(number_to_text(value), text);
+            assert_eq!(text.parse::<f64>().unwrap(), value);
+        }
+    }
+
+    #[test]
     fn arrays() {
         let a = Array::new(2, 2, vec![1.0.into(), 2.0.into(), 3.0.into(), 4.0.into()]).unwrap();
         assert_eq!(a.transpose().get(0, 1), Some(&Value::Number(3.0)));

@@ -41,3 +41,16 @@ Measured on: **not yet measured** (initial audit: 2026-10-12).
 | Web/WASM E2E | Not measured | Not verified |
 
 The goal is full defensible behavioral coverage, **not** a manufactured 100% threshold. Do not mark a component verified until tests and instrumented evidence exist.
+
+## 2026-10-12: verified initial baseline and CI failure
+
+- SHA: `90cdfa22269d489ca1f0b68db01a9a9263401eda`; Linux GitHub Actions run [38268012224](https://github.com/Rwanbt/gridcraft/actions/runs/38268012224) succeeded with downloadable `gridcraft-core-xlsx-lcov` artifact.
+- `gridcraft-core`: **878 / 1033 lines (85.00%)** and **120 / 146 functions (82.19%)**.
+- `gridcraft-xlsx`: **9847 / 10780 lines (91.35%)** and **1216 / 1326 functions (91.70%)**.
+- CSV decoder source: **177 / 181 lines (97.79%)**. Branch coverage was not present in LCOV.
+- Full CI run [38268012152](https://github.com/Rwanbt/gridcraft/actions/runs/38268012152) **failed at `cargo test --workspace`**, after fmt and clippy passed: engine library **226 passed / 2 failed**. The failing tests were `io::tests::csv_save_keeps_the_separator_it_was_opened_with` and `tests::saving_an_opened_semicolon_csv_keeps_semicolons`, both due to 12-digit unformatted integers being narrowed to scientific notation on CSV export. Other workspace tests may not have been run after the failing library.
+- The next commit adds a targeted CSV export fix and deterministic unit/regression tests, plus a separate **engine** coverage job. The outcome of the new commit must be read from its exact SHA's workflows; old results are not proof of the new code.
+
+## Ongoing scope
+
+This is still **not a 100% coverage claim**. Full workspace, operating systems and E2E coverage remain to be measured; future LCOV files must be compared only on compatible scopes.
