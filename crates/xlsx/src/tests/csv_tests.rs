@@ -87,6 +87,17 @@ fn truncated_utf16_code_unit_is_not_silently_dropped() {
 }
 
 #[test]
+fn utf16_invalid_surrogates_and_truncation_have_stable_replacement() {
+    // The UTF-16 decoder must not drop invalid surrogate pairs, nor discard
+    // an odd byte following an invalid pair.
+    assert_eq!(decode_text(&[0xFF, 0xFE, 0x00, 0xD8]), "\u{FFFD}");
+    assert_eq!(decode_text(&[0xFE, 0xFF, 0xD8, 0x00]), "\u{FFFD}");
+    assert_eq!(decode_text(&[0xFF, 0xFE, 0x00, 0xD8, b'A']), "\u{FFFD}\u{FFFD}");
+    let pair = [0xFF, 0xFE, 0x3D, 0xD8, 0x00, 0xDE];
+    assert_eq!(decode_text(&pair), "😀");
+}
+
+#[test]
 fn delimiter_sniffing() {
     assert_eq!(sniff_delimiter("a;b;c\n1;2;3\n", '"'), b';');
     assert_eq!(sniff_delimiter("a\tb\n1\t2\n", '"'), b'\t');
