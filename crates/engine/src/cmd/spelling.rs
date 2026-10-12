@@ -42,9 +42,13 @@ fn dictionary() -> &'static HashSet<String> {
 }
 
 fn known(s: &Session, w: &str) -> bool {
+    known_with(dictionary(), &s.prefs.user_dictionary, w)
+}
+
+/// Pure dictionary lookup so inflection rules can be tested without a host word-list file.
+fn known_with(dict: &HashSet<String>, user_words: &[String], w: &str) -> bool {
     let l = w.to_lowercase();
-    let dict = dictionary();
-    if dict.contains(&l) || s.prefs.user_dictionary.iter().any(|u| u.eq_ignore_ascii_case(w)) {
+    if dict.contains(&l) || user_words.iter().any(|u| u.eq_ignore_ascii_case(w)) {
         return true;
     }
     // Simple inflections the list doesn't spell out.
@@ -94,7 +98,15 @@ fn edits1(w: &str) -> Vec<String> {
 }
 
 fn suggestions(w: &str) -> Vec<String> {
-    let dict = dictionary();
+    suggestions_with(dictionary(), w)
+}
+
+/// Limit edit-distance candidate generation: a hostile cell can contain a very long word.
+/// Each candidate clones its characters, so unrestricted input is quadratic in memory.
+fn suggestions_with(dict: &HashSet<String>, w: &str) -> Vec<String> {
+    if w.chars().count() > 48 {
+        return Vec::new();
+    }
     let l = w.to_lowercase();
     let mut out: Vec<String> = edits1(&l).into_iter().filter(|c| dict.contains(c)).collect();
     out.sort();
@@ -176,4 +188,80 @@ fn thesaurus(_: &mut Session, p: &Json) -> Result<Json> {
     related.sort();
     related.truncate(20);
     Ok(json!(related))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gridcraft_core::{CellRef, Value};
+    use serde_json::json;
+
+    fn fixture(words: &[&str]) -> HashSet<String> {
+        words.iter().map(|word| (*word).to_string()).collect()
+    }
+
+    #[test]
+    fn edit_distance_one_includes_all_four_operations() {
+        let edits = edits1("cat");
+        assert!(edits.iter().any(|word| word == "at"), "deletion");
+        assert!(edits.iter().any(|word| word == "act"), "transposition");
+        assert!(edits.iter().any(|word| word == "cot"), "substitution");
+        assert!(edits.iter().any(|word| word == "cart"), "insertion");
+    }
+
+    #[test]
+    fn suggestions_use_sorted_unique_results_and_keep_case() {
+        let dict = fixture(&["cat", "cut", "dot", "coat"]);
+        assert_eq!(suggestions_with(&dict, "Cot"), ["Cat", "Coat", "Cut", "Dot"]);
+        assert_eq!(suggestions_with(&dict, "cot"), ["cat", "coat", "cut", "dot"]);
+        assert_eq!(suggestions_with(&dict, "zebra"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn long_words_cannot_expand_into_quadratic_candidate_memory() {
+        let dict = fixture(&["cat", "cut"]);
+        assert!(suggestions_with(&dict, &"z".repeat(48)).is_empty());
+        assert!(suggestions_with(&dict, &"z".repeat(49)).is_empty());
+        assert!(suggestions_with(&dict, &"z".repeat(32_000)).is_empty());
+        assert!(suggestions_with(&dict, &"é".repeat(49)).is_empty());
+    }
+
+    #[test]
+    fn user_dictionary_and_inflections_do_not_depend_on_system_files() {
+        let dict = fixture(&["work", "make", "happy"]);
+        let user = vec!["GridCraftword".to_string()];
+        for word in ["work", "WORK", "works", "worked", "working", "worker", "makers", "happily", "GRIDCRAFTWORD"] {
+            // Inflections are accepted when their stem or stem + 'e' is in the supplied dictionary.
+            if word != "happily" {
+                assert!(known_with(&dict, &user, word), "{word}");
+            }
+        }
+        assert!(!known_with(&dict, &user, "unknown"));
+        assert!(!known_with(&dict, &[], "GridCraftword"));
+    }
+
+    #[test]
+    fn add_to_dictionary_deduplicates_case_insensitively() {
+        let mut s = Session::new();
+        s.new_workbook();
+        assert!(s.execute("review.addToDictionary", json!({})).is_err());
+        s.execute("review.addToDictionary", json!({"word": "QA-Aether"})).unwrap();
+        s.execute("review.addToDictionary", json!({"word": "qa-aether"})).unwrap();
+        assert_eq!(s.prefs.user_dictionary, ["QA-Aether"]);
+        assert!(known_with(&HashSet::new(), &s.prefs.user_dictionary, "Qa-Aether"));
+    }
+
+    #[test]
+    fn single_spelling_replacement_is_undoable() {
+        let mut s = Session::new();
+        s.new_workbook();
+        s.execute("cell.set", json!({"cell": "A1", "input": "colour colour"})).unwrap();
+        assert!(s.execute("review.changeSpelling", json!({"word": "colour", "to": "color"})).is_err());
+        s.execute("review.changeSpelling", json!({"cell": "A1", "word": "colour", "to": "color"})).unwrap();
+        let get = |s: &Session| s.doc().unwrap().wb.active().unwrap().value(CellRef::new(0, 0));
+        assert_eq!(get(&s), Value::text("color colour"));
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(get(&s), Value::text("colour colour"));
+        assert_eq!(s.execute("review.thesaurus", json!({"word": "x"})).unwrap(), json!([]));
+    }
 }
