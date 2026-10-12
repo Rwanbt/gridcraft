@@ -592,10 +592,8 @@ mod tests {
         }
         // Scientific input deliberately gets the importer's 0.00E+00 number format.
         // Its numeric value survives, while display text is normalized on re-export.
-        assert_eq!(
-            save_bytes(&reopened, "numbers.csv").unwrap(),
-            b"124412140710,-124412140710,123456789012345,1.00E+15\r\n"
-        );
+        let normalized = b"124412140710,-124412140710,123456789012345,1.00E+15\r\n";
+        assert_eq!(save_bytes(&reopened, "numbers.csv").unwrap(), normalized);
     }
 
     #[test]
