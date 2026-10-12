@@ -41,10 +41,6 @@ fn dictionary() -> &'static HashSet<String> {
     })
 }
 
-fn known(s: &Session, w: &str) -> bool {
-    known_with(dictionary(), &s.prefs.user_dictionary, w)
-}
-
 /// Pure dictionary lookup so inflection rules can be tested without a host word-list file.
 fn known_with(dict: &HashSet<String>, user_words: &[String], w: &str) -> bool {
     let l = w.to_lowercase();
@@ -97,10 +93,6 @@ fn edits1(w: &str) -> Vec<String> {
     out
 }
 
-fn suggestions(w: &str) -> Vec<String> {
-    suggestions_with(dictionary(), w)
-}
-
 /// Limit edit-distance candidate generation: a hostile cell can contain a very long word.
 /// Each candidate clones its characters, so unrestricted input is quadratic in memory.
 fn suggestions_with(dict: &HashSet<String>, w: &str) -> Vec<String> {
@@ -127,7 +119,12 @@ fn suggestions_with(dict: &HashSet<String>, w: &str) -> Vec<String> {
 }
 
 fn spelling(s: &mut Session, p: &Json) -> Result<Json> {
-    if dictionary().is_empty() {
+    spelling_with_dictionary(s, p, dictionary())
+}
+
+/// A fixed word-list makes the complete traversal reproducible in unit tests and WebAssembly.
+fn spelling_with_dictionary(s: &mut Session, p: &Json, dict: &HashSet<String>) -> Result<Json> {
+    if dict.is_empty() {
         return Err(EngineError::Other("No dictionary is available on this system (GridCraft uses the system word list).".into()));
     }
     let si = target_sheet(s, p)?;
@@ -148,8 +145,8 @@ fn spelling(s: &mut Session, p: &Json) -> Result<Json> {
             if w.chars().count() < 2 || w.chars().all(char::is_uppercase) || !w.is_ascii() {
                 continue;
             }
-            if !known(s, w) {
-                issues.push(json!({"cell": c.a1(), "word": w, "suggestions": suggestions(w)}));
+            if !known_with(dict, &s.prefs.user_dictionary, w) {
+                issues.push(json!({"cell": c.a1(), "word": w, "suggestions": suggestions_with(dict, w)}));
             }
         }
         if issues.len() >= 500 {
@@ -230,12 +227,10 @@ mod tests {
     fn user_dictionary_and_inflections_do_not_depend_on_system_files() {
         let dict = fixture(&["work", "make", "happy"]);
         let user = vec!["GridCraftword".to_string()];
-        for word in ["work", "WORK", "works", "worked", "working", "worker", "makers", "happily", "GRIDCRAFTWORD"] {
-            // Inflections are accepted when their stem or stem + 'e' is in the supplied dictionary.
-            if word != "happily" {
-                assert!(known_with(&dict, &user, word), "{word}");
-            }
+        for word in ["work", "WORK", "works", "worked", "working", "worker", "makers", "GRIDCRAFTWORD"] {
+            assert!(known_with(&dict, &user, word), "{word}");
         }
+        assert!(!known_with(&dict, &user, "happily"));
         assert!(!known_with(&dict, &user, "unknown"));
         assert!(!known_with(&dict, &[], "GridCraftword"));
     }
@@ -249,6 +244,45 @@ mod tests {
         s.execute("review.addToDictionary", json!({"word": "qa-aether"})).unwrap();
         assert_eq!(s.prefs.user_dictionary, ["QA-Aether"]);
         assert!(known_with(&HashSet::new(), &s.prefs.user_dictionary, "Qa-Aether"));
+    }
+
+
+    #[test]
+    fn spelling_scan_is_bounded_and_scoped_with_a_fixed_dictionary() {
+        let mut s = Session::new();
+        s.new_workbook();
+        s.execute("cell.set", json!({"cell": "A1", "input": "Wrold blorp"})).unwrap();
+        s.execute("cell.set", json!({"cell": "B1", "input": "HELLO café"})).unwrap();
+        s.execute("cell.set", json!({"cell": "A2", "input": "=SUM(1,2)"})).unwrap();
+        s.execute("cell.set", json!({"cell": "B2", "input": "Hello!"})).unwrap();
+
+        let dict = fixture(&["hello", "world"]);
+        assert!(spelling_with_dictionary(&mut s, &json!({}), &HashSet::new()).is_err());
+        let result = spelling_with_dictionary(&mut s, &json!({"range": "A1:B2"}), &dict).unwrap();
+        assert_eq!(result["done"], false);
+        assert_eq!(result["issues"].as_array().unwrap().len(), 2);
+        assert_eq!(result["issues"][0]["cell"], "A1");
+        assert_eq!(result["issues"][0]["word"], "Wrold");
+        assert_eq!(result["issues"][0]["suggestions"], json!(["World"]));
+        assert_eq!(result["issues"][1]["word"], "blorp");
+        assert_eq!(spelling_with_dictionary(&mut s, &json!({"range": "B1:B2"}), &dict).unwrap()["done"], true);
+
+        s.prefs.user_dictionary.push("BLORP".into());
+        let result = spelling_with_dictionary(&mut s, &json!({"range": "A1:B2"}), &dict).unwrap();
+        assert_eq!(result["issues"].as_array().unwrap().len(), 1);
+        assert_eq!(result["issues"][0]["word"], "Wrold");
+    }
+
+    #[test]
+    fn spelling_issue_count_has_hard_cap_even_for_large_ranges() {
+        let mut s = Session::new();
+        s.new_workbook();
+        let values: Vec<Vec<&str>> = (0..501).map(|_| vec!["zz"]).collect();
+        s.execute("range.setValues", json!({"range": "A1", "values": values})).unwrap();
+        let report = spelling_with_dictionary(&mut s, &json!({"range": "A1:A501"}), &fixture(&["hello"])).unwrap();
+        assert_eq!(report["issues"].as_array().unwrap().len(), 500);
+        assert_eq!(report["issues"][499]["cell"], "A500");
+        assert_eq!(report["done"], false);
     }
 
     #[test]
