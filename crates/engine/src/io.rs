@@ -584,10 +584,7 @@ mod tests {
         assert_eq!(save_bytes(&wb, "numbers.csv").unwrap(), expected);
         assert_eq!(save_bytes(&wb, "numbers.tsv").unwrap(), b"124412140710\t-124412140710\t123456789012345\t1E+15\r\n");
         let (reopened, _) = open_bytes("numbers.csv", expected).unwrap();
-        for (column, number) in [124_412_140_710.0, -124_412_140_710.0, 123_456_789_012_345.0, 1e15]
-            .into_iter()
-            .enumerate()
-        {
+        for (column, number) in [124_412_140_710.0, -124_412_140_710.0, 123_456_789_012_345.0, 1e15].into_iter().enumerate() {
             assert_eq!(reopened.sheet(0).unwrap().value(CellRef::new(0, column as u32)), Value::Number(number));
         }
         // Scientific input deliberately gets the importer's 0.00E+00 number format.
