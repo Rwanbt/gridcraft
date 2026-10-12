@@ -93,6 +93,13 @@ pub fn cell_text(wb: &Workbook, sheet: &Sheet, c: CellRef) -> String {
 /// and no General narrowing (Save As CSV/Text writes this). Formulas give their result.
 pub fn value_text(wb: &Workbook, sheet: &Sheet, c: CellRef) -> String {
     let style = wb.styles.get(sheet.style_id(c));
+    // General's eleven-character limit belongs to the *grid*, not to CSV or clipboard export.
+    // Preserve the full 15 significant digits of numeric values when no explicit format applies.
+    if parsed(style.num_fmt.as_str()).is_general()
+        && let Value::Number(n) = sheet.value(c)
+    {
+        return gridcraft_core::number_to_text(n);
+    }
     let f = format(&sheet.value(c), style.num_fmt.as_str(), wb);
     match f.fill {
         Some((_, pos)) => {

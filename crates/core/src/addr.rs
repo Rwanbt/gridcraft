@@ -288,6 +288,49 @@ mod tests {
     }
 
     #[test]
+    fn address_parsing_rejects_invalid_grid_boundaries() {
+        for invalid in ["A0", "A1048577", "XFE1", "AAAA1", "1A", "$A$", "A-1", "A1B2", "A1 ", "é1"] {
+            assert_eq!(CellRef::parse(invalid), None, "{invalid}");
+        }
+        for (address, row, col) in [("a1", 0, 0), ("$B$42", 41, 1), ("xFd1048576", MAX_ROWS - 1, MAX_COLS - 1)] {
+            assert_eq!(CellRef::parse(address), Some(CellRef::new(row, col)));
+        }
+        for invalid in ["0:1", "1:1048577", "A:XFE", "A:", ":B", "A1:B0"] {
+            assert!(RangeRef::parse(invalid).is_none(), "{invalid}");
+        }
+        let full = RangeRef::all();
+        assert_eq!(full.count(), u64::from(MAX_ROWS) * u64::from(MAX_COLS));
+        assert!(full.contains(CellRef::new(MAX_ROWS - 1, MAX_COLS - 1)));
+        assert!(!full.contains(CellRef::new(MAX_ROWS, 0)));
+        assert!(full.intersection(&RangeRef::cell(CellRef::new(MAX_ROWS, 0))).is_none());
+    }
+
+    #[test]
+    fn seeded_range_intersection_matches_independent_cell_oracle() {
+        // Repeatable bounded property testing; covers intersections, disjoint ranges,
+        // commutativity and the total area without assuming the implementation is correct.
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut coordinate = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 32) as u32 % 32
+        };
+        let mut point = || CellRef::new(coordinate(), coordinate());
+
+        for case in 0..256 {
+            let a = RangeRef::new(point(), point());
+            let b = RangeRef::new(point(), point());
+            let overlap = (0..32).flat_map(|r| (0..32).map(move |c| CellRef::new(r, c))).filter(|&p| a.contains(p) && b.contains(p)).count();
+            let intersection = a.intersection(&b);
+            assert_eq!(intersection.is_some(), overlap > 0, "seed case {case}");
+            assert_eq!(intersection.map(|r| r.count()), (overlap > 0).then_some(overlap as u64), "seed case {case}");
+            assert_eq!(intersection, b.intersection(&a), "seed case {case}");
+            assert_eq!(a.union(&b), b.union(&a), "seed case {case}");
+            assert!(a.union(&b).contains_range(&a), "seed case {case}");
+            assert!(a.union(&b).contains_range(&b), "seed case {case}");
+        }
+    }
+
+    #[test]
     fn offsets() {
         assert_eq!(CellRef::new(0, 0).offset(-1, 0), None);
         assert_eq!(CellRef::new(0, 0).offset_clamped(-5, 3), CellRef::new(0, 3));

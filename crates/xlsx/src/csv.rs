@@ -20,8 +20,14 @@ pub fn decode_text(bytes: &[u8]) -> String {
         return String::from_utf8_lossy(rest).into_owned();
     }
     let utf16 = |b: &[u8], le: bool| -> String {
-        let units = b.as_chunks::<2>().0.iter().map(|c| if le { u16::from_le_bytes(*c) } else { u16::from_be_bytes(*c) });
-        char::decode_utf16(units).map(|r| r.unwrap_or('\u{FFFD}')).collect()
+        let (pairs, trailing) = b.as_chunks::<2>();
+        let units = pairs.iter().map(|c| if le { u16::from_le_bytes(*c) } else { u16::from_be_bytes(*c) });
+        let mut decoded: String = char::decode_utf16(units).map(|r| r.unwrap_or('\u{FFFD}')).collect();
+        // A truncated UTF-16 code unit is invalid data, not permission to discard it.
+        if !trailing.is_empty() {
+            decoded.push('\u{FFFD}');
+        }
+        decoded
     };
     if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         return utf16(rest, true);

@@ -46,3 +46,5 @@ jobs:
 
       - name: Quality gate
         run: cargo xtask ci
+      - name: Exact runner-collected test inventory
+        run: cargo xtask stats --exact
