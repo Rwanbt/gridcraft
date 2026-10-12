@@ -20,7 +20,8 @@ pub fn shift_relative(e: Expr, dr: i64, dc: i64) -> Expr {
 /// store a name's relative references as seen from A1 (a name for "the cell to the left" defined
 /// in B1 is `Sheet1!XFD1`), and a use in another cell moves them by that cell's offset from A1.
 pub fn shift_relative_wrapping(e: Expr, dr: i64, dc: i64) -> Expr {
-    let wrap = |v: u32, abs: bool, d: i64, max: u32| if abs { v } else { (v as i64 + d).rem_euclid(max as i64) as u32 };
+    // Compute modulo in a wider type: even i64::MAX / i64::MIN offsets must not overflow.
+    let wrap = |v: u32, abs: bool, d: i64, max: u32| if abs { v } else { ((v as i128 + d as i128).rem_euclid(max as i128)) as u32 };
     let anchor = |a: Anchor| Anchor { row: wrap(a.row, a.row_abs, dr, MAX_ROWS), col: wrap(a.col, a.col_abs, dc, MAX_COLS), ..a };
     e.map(&mut |x| match x {
         Expr::Ref(r) => {
@@ -46,8 +47,8 @@ pub fn has_relative_refs(e: &Expr) -> bool {
 }
 
 fn shift_anchor(a: &Anchor, dr: i64, dc: i64) -> Option<Anchor> {
-    let row = if a.row_abs { a.row as i64 } else { a.row as i64 + dr };
-    let col = if a.col_abs { a.col as i64 } else { a.col as i64 + dc };
+    let row = if a.row_abs { Some(a.row as i64) } else { (a.row as i64).checked_add(dr) }?;
+    let col = if a.col_abs { Some(a.col as i64) } else { (a.col as i64).checked_add(dc) }?;
     let (row, col) = clamp_anchor(row, col)?;
     Some(Anchor { row, col, ..*a })
 }
@@ -56,7 +57,7 @@ fn shift_line(v: u32, abs: bool, d: i64, max: u32) -> Option<u32> {
     if abs {
         return Some(v);
     }
-    let n = v as i64 + d;
+    let n = (v as i64).checked_add(d)?;
     if (0..max as i64).contains(&n) { Some(n as u32) } else { None }
 }
 
