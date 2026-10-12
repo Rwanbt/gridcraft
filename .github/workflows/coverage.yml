@@ -1,0 +1,47 @@
+# A scoped first coverage baseline; does not replace the full workspace gate in ci.yml.
+name: Coverage baseline (core + XLSX)
+
+on:
+  pull_request:
+    paths:
+      - 'crates/core/**'
+      - 'crates/xlsx/**'
+      - '.github/workflows/coverage.yml'
+      - 'docs/quality/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-xlsx-coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust and LLVM coverage tools
+        run: |
+          rustup toolchain install stable --profile minimal --component llvm-tools-preview
+          rustup default stable
+          cargo install cargo-llvm-cov --locked
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Run instrumented core and XLSX tests
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --locked -p gridcraft-core -p gridcraft-xlsx --lcov --output-path coverage/core-xlsx.lcov
+          test -s coverage/core-xlsx.lcov
+      - name: Publish LCOV baseline
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gridcraft-core-xlsx-lcov
+          path: coverage/core-xlsx.lcov
+          if-no-files-found: warn
+          retention-days: 30

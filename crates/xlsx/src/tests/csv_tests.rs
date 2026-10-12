@@ -69,6 +69,24 @@ fn encodings() {
 }
 
 #[test]
+fn truncated_utf16_code_unit_is_not_silently_dropped() {
+    // An odd trailing byte after a UTF-16 BOM must survive as the replacement character,
+    // just as an invalid surrogate pair does. Losing it would silently truncate imported data.
+    assert_eq!(decode_text(&[0xFF, 0xFE, b'A', 0, b'B']), "A\u{FFFD}");
+    assert_eq!(decode_text(&[0xFE, 0xFF, 0, b'A', b'B']), "A\u{FFFD}");
+    assert_eq!(decode_text(&[0xFF, 0xFE, b'A']), "\u{FFFD}");
+    assert_eq!(decode_text(&[0xFE, 0xFF, b'A']), "\u{FFFD}");
+    // Complete input remains unchanged; odd trailing bytes are the only new case.
+    assert_eq!(decode_text(&[0xFF, 0xFE, b'A', 0]), "A");
+    assert_eq!(decode_text(&[0xFE, 0xFF, 0, b'A']), "A");
+    // The decoded marker must also be retained by the actual CSV import pipeline.
+    let bytes = [0xFF, 0xFE, b'A', 0, b',', 0, b'B', 0, b'C'];
+    let wb = read_csv(&bytes, &CsvOptions { parse_values: false, ..Default::default() }).unwrap();
+    assert_eq!(v(&wb, 0, 0), Value::text("A"));
+    assert_eq!(v(&wb, 0, 1), Value::text("B\u{FFFD}"));
+}
+
+#[test]
 fn delimiter_sniffing() {
     assert_eq!(sniff_delimiter("a;b;c\n1;2;3\n", '"'), b';');
     assert_eq!(sniff_delimiter("a\tb\n1\t2\n", '"'), b'\t');
