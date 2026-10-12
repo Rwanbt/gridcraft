@@ -301,3 +301,48 @@ fn trim_references_adjust() {
     let refs: Vec<String> = parse("SUM(Sheet2!A1:.B5)").unwrap().references().iter().map(|r| printer::reference_a1(r)).collect();
     assert_eq!(refs, ["Sheet2!A1:B5"]);
 }
+
+#[test]
+fn extreme_signed_reference_offsets_cannot_overflow() {
+    use crate::adjust::{has_relative_refs, shift_relative_wrapping};
+
+    for delta in [i64::MIN, i64::MAX] {
+        for reference in ["B2", "B2:C3", "2:3", "B:C"] {
+            let shifted = shift_relative(parse(reference).unwrap(), delta, delta);
+            assert_eq!(print(&shifted), "#REF!", "{reference}, {delta}");
+        }
+        let fixed = parse("$B$2+$C$3").unwrap();
+        assert!(!has_relative_refs(&fixed));
+        assert_eq!(print(&shift_relative(fixed.clone(), delta, delta)), "$B$2+$C$3");
+        assert_eq!(print(&shift_relative_wrapping(fixed, delta, delta)), "$B$2+$C$3");
+
+        let shifted = shift_relative_wrapping(parse("B2").unwrap(), delta, delta);
+        let row = (1i128 + delta as i128).rem_euclid(gridcraft_core::MAX_ROWS as i128) as u32;
+        let col = (1i128 + delta as i128).rem_euclid(gridcraft_core::MAX_COLS as i128) as u32;
+        let expected = format!("{}{}", gridcraft_core::col_to_letters(col), row + 1);
+        assert_eq!(print(&shifted), expected, "wrapped offset {delta}");
+    }
+}
+
+#[test]
+fn seeded_formula_copy_shift_inverse_is_deterministic() {
+    // Bounded source-independent oracle: valid relative shifts and their inverses
+    // must restore the exact original reference. Fixed anchors never move.
+    let mut state = 0x4d59_5df4_d0f3_3173u64;
+    let mut next = || {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (state >> 32) as u32
+    };
+    for case in 0..256 {
+        let row = next() % 100 + 20;
+        let col = next() % 100 + 20;
+        let dr = (next() % 31) as i64 - 15;
+        let dc = (next() % 31) as i64 - 15;
+        let original = format!("{}{}+$A$1", gridcraft_core::col_to_letters(col), row + 1);
+        let e = parse(&original).unwrap();
+        let shifted = shift_relative(e, dr, dc);
+        let expected = format!("{}{}+$A$1", gridcraft_core::col_to_letters((col as i64 + dc) as u32), (row as i64 + dr) + 1);
+        assert_eq!(print(&shifted), expected, "case {case}");
+        assert_eq!(print(&shift_relative(shifted, -dr, -dc)), original, "case {case}");
+    }
+}
