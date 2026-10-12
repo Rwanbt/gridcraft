@@ -341,11 +341,7 @@ fn seeded_formula_copy_shift_inverse_is_deterministic() {
         let original = format!("{}{}+$A$1", gridcraft_core::col_to_letters(col), row + 1);
         let e = parse(&original).unwrap();
         let shifted = shift_relative(e, dr, dc);
-        let expected = format!(
-            "{}{}+$A$1",
-            gridcraft_core::col_to_letters((col as i64 + dc) as u32),
-            (row as i64 + dr) + 1
-        );
+        let expected = format!("{}{}+$A$1", gridcraft_core::col_to_letters((col as i64 + dc) as u32), (row as i64 + dr) + 1);
         assert_eq!(print(&shifted), expected, "case {case}");
         assert_eq!(print(&shift_relative(shifted, -dr, -dc)), original, "case {case}");
     }
