@@ -292,11 +292,7 @@ mod tests {
         for invalid in ["A0", "A1048577", "XFE1", "AAAA1", "1A", "$A$", "A-1", "A1B2", "A1 ", "é1"] {
             assert_eq!(CellRef::parse(invalid), None, "{invalid}");
         }
-        for (address, row, col) in [
-            ("a1", 0, 0),
-            ("$B$42", 41, 1),
-            ("xFd1048576", MAX_ROWS - 1, MAX_COLS - 1),
-        ] {
+        for (address, row, col) in [("a1", 0, 0), ("$B$42", 41, 1), ("xFd1048576", MAX_ROWS - 1, MAX_COLS - 1)] {
             assert_eq!(CellRef::parse(address), Some(CellRef::new(row, col)));
         }
         for invalid in ["0:1", "1:1048577", "A:XFE", "A:", ":B", "A1:B0"] {
