@@ -147,6 +147,9 @@ fn spelling_with_dictionary(s: &mut Session, p: &Json, dict: &HashSet<String>) -
             }
             if !known_with(dict, &s.prefs.user_dictionary, w) {
                 issues.push(json!({"cell": c.a1(), "word": w, "suggestions": suggestions_with(dict, w)}));
+                if issues.len() >= 500 {
+                    break;
+                }
             }
         }
         if issues.len() >= 500 {
@@ -283,6 +286,16 @@ mod tests {
         assert_eq!(report["issues"].as_array().unwrap().len(), 500);
         assert_eq!(report["issues"][499]["cell"], "A500");
         assert_eq!(report["done"], false);
+
+        // The same cap also applies if one text cell contains more than 500 tokens:
+        // limiting only after each *cell* used to return an unbounded list.
+        let mut single = Session::new();
+        single.new_workbook();
+        let payload = "zz ".repeat(501);
+        single.execute("cell.set", json!({"cell": "A1", "input": payload})).unwrap();
+        let report = spelling_with_dictionary(&mut single, &json!({"range": "A1"}), &fixture(&["hello"])).unwrap();
+        assert_eq!(report["issues"].as_array().unwrap().len(), 500);
+        assert_eq!(report["issues"][499]["cell"], "A1");
     }
 
     #[test]
